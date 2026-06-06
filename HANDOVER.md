@@ -30,43 +30,51 @@ deploy, and extend the MVP.
 
 ## 1a. Deployed services
 
-| Service | URL | Notes |
+| Service | URL | Status |
 | --- | --- | --- |
-| Live demo worker | https://appbazaar-demo.c-bcf.workers.dev | In-memory, ephemeral |
-| Router worker | https://appbazaar-router.c-bcf.workers.dev | `db: "unconfigured"` until DATABASE_URL secret is set |
-| Registry | Not yet on Vercel | Needs VERCEL_TOKEN |
+| Live demo worker | https://appbazaar-demo.c-bcf.workers.dev | ✅ in-memory, ephemeral |
+| Router worker | https://appbazaar-router.c-bcf.workers.dev | ✅ `backplane:"upstash"` · `db:"unconfigured"` (DATABASE_URL not yet wired) |
+| Registry | Not yet on Vercel | ❌ VERCEL_TOKEN in secrets is invalid — regenerate from Vercel dashboard |
 
 ---
 
 ## 1b. DATABASE_URL — action required
 
-The `DATABASE_URL` secret currently has placeholder text (`<project-ref>` and `<region>`) that
-makes the URL invalid. The registry detects this, logs a warning, and falls back to PGlite.
+The `DATABASE_URL` secret is currently set to the **Supabase REST API URL**
+(`https://[ref].supabase.co/`) instead of a PostgreSQL connection string.
+The registry detects this, logs a warning, and falls back to PGlite (confirmed
+via `GET /api/health` → `"db":"pglite"`).
 
-**Fix in two steps:**
+**Fix — three steps:**
 
 1. **Get the correct connection string:**
-   Supabase Dashboard → Project Settings → Database → Connection string.
+   Supabase Dashboard → Project Settings → Database → Connection string (or URI tab).
    - For the **registry** (Next.js/Vercel): pick **Session mode** (port 5432)
    - For the **router worker** (Cloudflare Workers): pick **Transaction mode** (port 6543)
    
-   Format: `postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres`
+   Format: `postgresql://postgres.[project-ref]:[db-password]@aws-0-[region].pooler.supabase.com:5432/postgres`
 
 2. **Update secrets:**
    - Cursor Dashboard → Cloud Agents → Secrets → `DATABASE_URL` (Session mode URL)
-   - Router worker: `cd apps/router && echo "..." | npx wrangler secret put DATABASE_URL` (Transaction mode URL)
+   - Router worker (Transaction mode URL):
+     ```bash
+     cd apps/router
+     echo "postgresql://postgres.[ref]:[pw]@aws-0-[region].pooler.supabase.com:6543/postgres" \
+       | npx wrangler secret put DATABASE_URL
+     npx wrangler deploy
+     ```
 
-3. **Apply migration** (Supabase SQL Editor, or run once you have the correct DATABASE_URL):
-   ```sql
-   ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_connect_account_id text;
-   ```
-   Or via the migration script:
-   ```bash
-   DATABASE_URL="postgresql://..." pnpm migrate
-   ```
-   The `stripe_connect_account_id` column is currently missing from the live Supabase instance.
+3. **Apply migration** — the `stripe_connect_account_id` column is missing from the live DB.
+   Once DATABASE_URL is the correct `postgresql://` string, either:
+   - Paste into Supabase SQL Editor: `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_connect_account_id text;`
+   - Or run: `DATABASE_URL="postgresql://..." pnpm migrate`
+   - Or just redeploy the registry — it now **auto-applies idempotent migrations on first boot** when connected to Postgres.
 
 4. **Verify:** `curl https://<registry-domain>/api/health` → `{"ok":true,"db":"postgres",...}`
+
+**Note on VERCEL_TOKEN:** the token in Cursor Secrets starts with `prj_` which is a Vercel
+project-scoped token but appears to be expired or from a different team. Regenerate from
+Vercel Dashboard → Account Settings → Tokens, then update the secret.
 
 ---
 
@@ -160,9 +168,14 @@ then deploy each piece. See `.env.example` for the full list.
 
 **Routing layer (Phase 2) → Cloudflare Workers**
 1. Worker is deployed at https://appbazaar-router.c-bcf.workers.dev.
-2. Set DATABASE_URL (Transaction mode, port 6543): `cd apps/router && echo "..." | npx wrangler secret put DATABASE_URL`
-3. Optionally set Upstash secrets: `npx wrangler secret put UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
-4. Redeploy: `cd apps/router && npx wrangler deploy`
+2. ✅ Upstash secrets are wired — `/health` now returns `"backplane":"upstash"`.
+3. Still needed: DATABASE_URL (Transaction mode, port 6543):
+   ```bash
+   cd apps/router
+   echo "postgresql://postgres.[ref]:[pw]@aws-0-[region].pooler.supabase.com:6543/postgres" \
+     | npx wrangler secret put DATABASE_URL
+   npx wrangler deploy
+   ```
 
 **Stripe**:
 - `POST /api/wallet` — when `STRIPE_SECRET_KEY` is set, returns `{ checkoutUrl }` (Stripe Checkout, min 50 000 credits). When absent, grants credits directly (dev/demo mode).
@@ -195,9 +208,10 @@ then deploy each piece. See `.env.example` for the full list.
 
 ## 7. Known limitations / wave 2
 
-- **DATABASE_URL** has placeholder values; registry falls back to PGlite. Fix: see section 1b.
-- **Supabase migration 0001** not yet applied to live DB: `stripe_connect_account_id` column missing. Fix: see section 1b.
+- **DATABASE_URL** is set to the Supabase REST API URL, not a PostgreSQL connection string; registry falls back to PGlite. Fix: see section 1b.
+- **Supabase migration 0001** not yet applied to live DB: `stripe_connect_account_id` column missing. Fix: see section 1b (registry now auto-applies on first postgres boot).
 - **Router worker** has no DATABASE_URL secret set; non-health routes return 503. Fix: see section 5.
+- **VERCEL_TOKEN** is invalid (expired or wrong team). Regenerate from Vercel dashboard.
 - **Tunnel transport** is not implemented — wire `TunnelTransport` to a real tunnel registry.
 - **PGlite + production Next build:** PGlite is dev-only; production must use `DATABASE_URL`.
 - **Human auth** uses a dev-tenant cookie until Supabase keys are set (they are ✅).
