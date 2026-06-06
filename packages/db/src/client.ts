@@ -50,7 +50,9 @@ export async function createPgliteHandleFromClient(client: {
 export async function createPostgresHandle(connectionString: string): Promise<DbHandle> {
   const postgres = (await import("postgres")).default;
   const { drizzle } = await import("drizzle-orm/postgres-js");
-  const client = postgres(connectionString, { max: 5, prepare: false });
+  // Supabase pooler endpoints require TLS; `ssl: 'require'` works for both
+  // session-mode (port 5432) and transaction-mode (port 6543) pooler URLs.
+  const client = postgres(connectionString, { max: 5, prepare: false, ssl: "require" });
   const db = drizzle(client, { schema }) as unknown as Database;
   return {
     db,
@@ -65,11 +67,22 @@ export async function createPostgresHandle(connectionString: string): Promise<Db
 
 /**
  * Build a handle from the environment. `DATABASE_URL` selects managed
- * Postgres; otherwise an ephemeral/in-memory PGlite instance is used so the
- * stack runs with zero external dependencies.
+ * Postgres (must start with postgresql:// or postgres://); otherwise an
+ * ephemeral/in-memory PGlite instance is used so the stack runs with zero
+ * external dependencies.
  */
 export async function createHandleFromEnv(env: NodeJS.ProcessEnv = process.env): Promise<DbHandle> {
-  if (env.DATABASE_URL) return createPostgresHandle(env.DATABASE_URL);
+  const url = env.DATABASE_URL ?? "";
+  const isPostgresUrl = url.startsWith("postgresql://") || url.startsWith("postgres://");
+  if (isPostgresUrl) return createPostgresHandle(url);
+  if (url && !isPostgresUrl) {
+    console.warn(
+      "[appbazaar] DATABASE_URL is set but is not a PostgreSQL connection string " +
+        "(expected postgresql:// or postgres://). Falling back to in-process PGlite. " +
+        "Set DATABASE_URL to the Session-mode connection string from Supabase → " +
+        "Project Settings → Database → Connection string.",
+    );
+  }
   return createPgliteHandle(env.PGLITE_PATH);
 }
 

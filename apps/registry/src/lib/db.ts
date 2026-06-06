@@ -26,6 +26,9 @@ async function buildHandle(): Promise<{ handle: DbHandle; driver: "postgres" | "
   if (isPostgresUrl) {
     try {
       const handle = await createPostgresHandle(dbUrl);
+      // Auto-apply idempotent migrations so the schema is always current without
+      // a manual `pnpm migrate` step after the first Vercel/Supabase cold-start.
+      await handle.migrate();
       return { handle, driver: "postgres" };
     } catch (err) {
       console.warn(
