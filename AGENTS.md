@@ -36,6 +36,16 @@ pnpm --filter @appbazaar/db run seed              # sample data + API key (PGlit
 
 ## Cursor Cloud specific instructions
 
+### Environment bootstrap
+
+Pre-checkout user install (snapshot/Dockerfile phase) should only activate pnpm via Corepack — **do not** run `pnpm install` before the repo is checked out:
+
+```bash
+corepack enable && corepack prepare pnpm@10.0.0 --activate
+```
+
+Dependency install runs from `.cursor/environment.json` → `install` after checkout (also the VM update script): `pnpm install`.
+
 ### Branch note
 
 `main` currently contains only a placeholder README. Application code lives on feature branches (notably `cursor/appbazaar-mvp-7dcd`). Check out a branch with the monorepo before installing or running services.
