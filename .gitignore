@@ -1,0 +1,23 @@
+node_modules/
+dist/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+
+# env
+.env
+.env.local
+.env.*.local
+
+# pglite local data
+.pgdata/
+*.pglite
+
+# editors / os
+.DS_Store
+.idea/
+.vscode/
+
+# cloudflare
+.wrangler/

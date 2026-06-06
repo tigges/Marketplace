@@ -1,0 +1,28 @@
+{
+  "name": "appbazaar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "appbazaar.ai — an open marketplace, registry, and non-custodial routing layer for AI agents and data connectors.",
+  "packageManager": "pnpm@10.0.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter ./packages/* run build && pnpm --filter @appbazaar/registry run build",
+    "dev:registry": "pnpm --filter @appbazaar/registry run dev",
+    "dev:router": "pnpm --filter @appbazaar/router run dev",
+    "demo": "pnpm --filter @appbazaar/examples run demo",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "baseUrl": ".",
+    "paths": {
+      "@appbazaar/core": ["packages/core/src/index.ts"],
+      "@appbazaar/core/*": ["packages/core/src/*"],
+      "@appbazaar/db": ["packages/db/src/index.ts"],
+      "@appbazaar/db/*": ["packages/db/src/*"],
+      "@appbazaar/router-core": ["packages/router-core/src/index.ts"],
+      "@appbazaar/router-core/*": ["packages/router-core/src/*"]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*",
+    "apps/*/src/**/*",
+    "examples/**/*",
+    "tests/**/*",
+    "vitest.config.ts"
+  ],
+  "exclude": ["node_modules", "**/dist/**", "apps/registry/.next"]
+}

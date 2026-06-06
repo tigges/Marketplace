@@ -1,0 +1,15 @@
+name = "appbazaar-demo"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+workers_dev = true
+
+# Single Durable Object holds shared demo state (registry + wallet + ledger),
+# so every request sees a consistent view — the same primitive the production
+# router uses for session state. SQLite-backed class for Workers Free support.
+[[durable_objects.bindings]]
+name = "DEMO_STORE"
+class_name = "DemoStore"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DemoStore"]
