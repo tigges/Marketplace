@@ -1,9 +1,7 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import * as schema from "./schema.js";
+import { INIT_SQL } from "./migrations/sql.js";
 
 /**
  * A driver-agnostic Drizzle handle. Both the PGlite (local/test) and
@@ -20,21 +18,27 @@ export interface DbHandle {
   close(): Promise<void>;
 }
 
-function migrationSql(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return readFileSync(join(here, "migrations", "0000_init.sql"), "utf8");
-}
-
 /** In-process Postgres via PGlite — used for local dev and tests. */
 export async function createPgliteHandle(dataDir?: string): Promise<DbHandle> {
   const { PGlite } = await import("@electric-sql/pglite");
+  return createPgliteHandleFromClient(new PGlite(dataDir));
+}
+
+/**
+ * Build a handle from a caller-provided PGlite instance. Useful in bundled
+ * environments (e.g. Next.js) where the host app must import `@electric-sql/
+ * pglite` itself so the bundler can externalize its wasm loader.
+ */
+export async function createPgliteHandleFromClient(client: {
+  exec(sql: string): Promise<unknown>;
+  close(): Promise<void>;
+}): Promise<DbHandle> {
   const { drizzle } = await import("drizzle-orm/pglite");
-  const client = new PGlite(dataDir);
-  const db = drizzle(client, { schema }) as unknown as Database;
+  const db = drizzle(client as never, { schema }) as unknown as Database;
   return {
     db,
     async migrate() {
-      await client.exec(migrationSql());
+      await client.exec(INIT_SQL);
     },
     async close() {
       await client.close();
@@ -51,7 +55,7 @@ export async function createPostgresHandle(connectionString: string): Promise<Db
   return {
     db,
     async migrate() {
-      await client.unsafe(migrationSql());
+      await client.unsafe(INIT_SQL);
     },
     async close() {
       await client.end({ timeout: 5 });
