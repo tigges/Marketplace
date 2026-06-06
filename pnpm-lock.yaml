@@ -53,6 +53,9 @@ importers:
       react-dom:
         specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
+      stripe:
+        specifier: ^22.2.0
+        version: 22.2.0(@types/node@22.19.20)
       zod:
         specifier: ^3.23.8
         version: 3.25.76
@@ -1440,6 +1443,15 @@ packages:
     resolution: {integrity: sha512-Mcc5wHehp9aXz1ax6bZUyY5afg9u2rv5cqQI3mRrYkGC8rW2hM02jWuwjtL++LS5qinSyhj2QfLyNsuc+VsExg==}
     engines: {node: '>=10.0.0'}
 
+  stripe@22.2.0:
+    resolution: {integrity: sha512-WFGpMOom9QZqso1kcnSwJsCdC1QHDlMoCOxBZRf3JraMzhkfw7dgSdD2a1CFZrqC+mzAfqeEtYILrZhWKIDruA==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@types/node': '>=18'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
+
   styled-jsx@5.1.1:
     resolution: {integrity: sha512-pW7uC1l4mBZ8ugbiZrcIsiIvVx1UmTfw7UkC3Um2tmfUq9Bhk8IiyEIPl6F8agHgjzku6j0xQEZbfA5uSgSaCw==}
     engines: {node: '>= 12.0.0'}
@@ -2552,6 +2564,10 @@ snapshots:
   stoppable@1.1.0: {}
 
   streamsearch@1.1.0: {}
+
+  stripe@22.2.0(@types/node@22.19.20):
+    optionalDependencies:
+      '@types/node': 22.19.20
 
   styled-jsx@5.1.1(react@18.3.1):
     dependencies:

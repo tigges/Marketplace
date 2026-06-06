@@ -18,11 +18,23 @@ import {
 const globalForDb = globalThis as unknown as { __appbazaarDb?: Promise<DbHandle> };
 
 async function buildHandle(): Promise<DbHandle> {
-  if (process.env.DATABASE_URL) {
-    const handle = await createPostgresHandle(process.env.DATABASE_URL);
+  const dbUrl = process.env.DATABASE_URL;
+  const isPostgresUrl = dbUrl && (dbUrl.startsWith("postgresql://") || dbUrl.startsWith("postgres://"));
+
+  if (isPostgresUrl) {
+    const handle = await createPostgresHandle(dbUrl);
     // Managed Postgres (Supabase) migrations are expected to run via CI.
     return handle;
   }
+
+  if (dbUrl && !isPostgresUrl) {
+    console.warn(
+      "[appbazaar] DATABASE_URL is set but does not look like a PostgreSQL connection string " +
+        "(expected postgresql:// or postgres://). Falling back to in-process PGlite. " +
+        "Set DATABASE_URL to the connection string from Supabase → Project Settings → Database.",
+    );
+  }
+
   const { PGlite } = await import("@electric-sql/pglite");
   const handle = await createPgliteHandleFromClient(new PGlite());
   await handle.migrate();
@@ -33,7 +45,9 @@ export function getDbHandle(): Promise<DbHandle> {
   if (!globalForDb.__appbazaarDb) {
     globalForDb.__appbazaarDb = (async () => {
       const handle = await buildHandle();
-      if (!process.env.DATABASE_URL && (await isRegistryEmpty(handle.db))) {
+      const dbUrl = process.env.DATABASE_URL ?? "";
+      const isPostgresUrl = dbUrl.startsWith("postgresql://") || dbUrl.startsWith("postgres://");
+      if (!isPostgresUrl && (await isRegistryEmpty(handle.db))) {
         await seedSampleData(handle.db, {
           connectorUrl: process.env.EXAMPLE_CONNECTOR_URL ?? "http://localhost:8787",
         });

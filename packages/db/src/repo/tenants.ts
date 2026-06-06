@@ -35,3 +35,13 @@ export async function getTenantByClerkRef(db: Database, clerkRef: string) {
   const rows = await db.select().from(tenants).where(eq(tenants.clerkRef, clerkRef)).limit(1);
   return rows[0] ?? null;
 }
+
+/** Persist the Stripe Connect account ID once the creator completes OAuth. */
+export async function setStripeConnectAccountId(db: Database, tenantId: string, stripeAccountId: string) {
+  const [row] = await db
+    .update(tenants)
+    .set({ stripeConnectAccountId: stripeAccountId })
+    .where(eq(tenants.id, tenantId))
+    .returning();
+  return row ?? null;
+}

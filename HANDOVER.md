@@ -17,8 +17,41 @@ deploy, and extend the MVP.
 | 2 — Routing layer | Stateless multi-tenant SSE router, direct + tunnel modes | ✅ direct done; tunnel wired (wave 2) |
 | 3 — Identity & billing | API keys, prepaid wallet, usage ledger, revenue splits, payouts | ✅ built |
 | Live demo | Public Cloudflare Worker of the end-to-end flow | ✅ deployed |
+| Router Worker | Production Cloudflare Worker (`appbazaar-router`) | ✅ deployed (needs DATABASE_URL secret) |
+| Stripe billing | Checkout top-ups + Connect payouts | ✅ wired (needs STRIPE_SECRET_KEY) |
 
 **Verification (all green):** `pnpm typecheck` (all packages) · `pnpm test` (18 passing) · `pnpm --filter @appbazaar/registry build`.
+
+---
+
+## 1a. Deployed services
+
+| Service | URL | Notes |
+| --- | --- | --- |
+| Live demo worker | https://appbazaar-demo.c-bcf.workers.dev | In-memory, ephemeral |
+| Router worker | https://appbazaar-router.c-bcf.workers.dev | Needs DATABASE_URL secret wired |
+| Registry | Not yet on Vercel | Needs VERCEL_TOKEN |
+
+---
+
+## 1b. DATABASE_URL fix required
+
+`DATABASE_URL` is currently set to the Supabase REST API URL (`https://...`), not a PostgreSQL
+connection string.  The registry detects this and falls back to PGlite (with a console warning),
+so the app runs but data is ephemeral.
+
+To connect to Supabase Postgres:
+1. Go to Supabase Dashboard → Project Settings → Database → Connection string.
+2. Choose **Session mode** (port 5432).
+3. Copy the `postgresql://postgres.[ref]:[password]@...` string.
+4. Set it as the `DATABASE_URL` secret in Cursor Dashboard → Cloud Agents → Secrets.
+5. For the router worker: `wrangler secret put DATABASE_URL` (in `apps/router/`).
+
+Apply the new Stripe Connect migration while you're there:
+```sql
+-- packages/db/src/migrations/0001_stripe_connect.sql
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_connect_account_id text;
+```
 
 ---
 
@@ -115,6 +148,25 @@ then deploy each piece. See `.env.example` for the full list.
 **Stripe**: top-ups are direct credit grants in MVP — replace `POST /api/wallet`
 with a Stripe Checkout webhook; payouts are created via `requestPayout` and
 should be settled with a Stripe Connect transfer, then `markPayoutPaid`.
+
+**Stripe (wired — needs keys):**
+- `POST /api/wallet` — when `STRIPE_SECRET_KEY` is set, returns `{ checkoutUrl }` (Stripe Checkout session). When absent, grants credits directly (dev/demo mode).
+- `POST /api/stripe/webhook` — handles `checkout.session.completed` → credits wallet; `transfer.created` → marks payout paid. Set `STRIPE_WEBHOOK_SECRET` for signature verification.
+- `GET /api/stripe/connect` — initiates Stripe Connect OAuth for creator onboarding.
+- `GET /api/stripe/connect/callback` — completes OAuth, stores `stripeConnectAccountId` on the tenant.
+- `POST /api/payouts/[id]/settle` — creates a Stripe Connect transfer and calls `markPayoutPaid`.
+
+New secrets needed:
+```
+STRIPE_SECRET_KEY          Stripe dashboard → Developers → API keys
+STRIPE_CONNECT_CLIENT_ID   Stripe dashboard → Connect → Settings
+STRIPE_WEBHOOK_SECRET      Stripe dashboard → Webhooks → signing secret
+```
+
+New Supabase migration: `packages/db/src/migrations/0001_stripe_connect.sql`
+```sql
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_connect_account_id text;
+```
 
 ---
 
