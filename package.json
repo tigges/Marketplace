@@ -12,6 +12,7 @@
     "dev:registry": "pnpm --filter @appbazaar/registry run dev",
     "dev:router": "pnpm --filter @appbazaar/router run dev",
     "demo": "pnpm --filter @appbazaar/examples run demo",
+    "migrate": "pnpm --filter @appbazaar/db run migrate",
     "typecheck": "pnpm -r run typecheck",
     "test": "vitest run",
     "test:watch": "vitest"

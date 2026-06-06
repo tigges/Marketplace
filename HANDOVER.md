@@ -4,8 +4,10 @@ A neutral registry + non-custodial routing layer + billing for AI agents and
 data connectors. This document is everything the next owner needs to run,
 deploy, and extend the MVP.
 
-- **Branch:** `cursor/appbazaar-mvp-7dcd` · **PR:** #1
+- **Branch:** `cursor/deploy-router-stripe-b726` · **PR:** #3 (base: `cursor/appbazaar-mvp-7dcd` → PR #1)
+- **Supabase project:** `hdxigqtrybduehpxgpyp` (ref only; URL in env `NEXT_PUBLIC_SUPABASE_URL`)
 - **Live demo:** https://appbazaar-demo.c-bcf.workers.dev (ephemeral, in-memory; resets periodically)
+- **Router worker:** https://appbazaar-router.c-bcf.workers.dev
 
 ---
 
@@ -17,10 +19,12 @@ deploy, and extend the MVP.
 | 2 — Routing layer | Stateless multi-tenant SSE router, direct + tunnel modes | ✅ direct done; tunnel wired (wave 2) |
 | 3 — Identity & billing | API keys, prepaid wallet, usage ledger, revenue splits, payouts | ✅ built |
 | Live demo | Public Cloudflare Worker of the end-to-end flow | ✅ deployed |
-| Router Worker | Production Cloudflare Worker (`appbazaar-router`) | ✅ deployed (needs DATABASE_URL secret) |
+| Router Worker | Production Cloudflare Worker (`appbazaar-router`) | ✅ deployed |
 | Stripe billing | Checkout top-ups + Connect payouts | ✅ wired (needs STRIPE_SECRET_KEY) |
 
-**Verification (all green):** `pnpm typecheck` (all packages) · `pnpm test` (18 passing) · `pnpm --filter @appbazaar/registry build`.
+**Verification (all green):**
+- `pnpm typecheck` — clean across all packages
+- `pnpm test` — 18/18 passing
 
 ---
 
@@ -29,29 +33,40 @@ deploy, and extend the MVP.
 | Service | URL | Notes |
 | --- | --- | --- |
 | Live demo worker | https://appbazaar-demo.c-bcf.workers.dev | In-memory, ephemeral |
-| Router worker | https://appbazaar-router.c-bcf.workers.dev | Needs DATABASE_URL secret wired |
+| Router worker | https://appbazaar-router.c-bcf.workers.dev | `db: "unconfigured"` until DATABASE_URL secret is set |
 | Registry | Not yet on Vercel | Needs VERCEL_TOKEN |
 
 ---
 
-## 1b. DATABASE_URL fix required
+## 1b. DATABASE_URL — action required
 
-`DATABASE_URL` is currently set to the Supabase REST API URL (`https://...`), not a PostgreSQL
-connection string.  The registry detects this and falls back to PGlite (with a console warning),
-so the app runs but data is ephemeral.
+The `DATABASE_URL` secret currently has placeholder text (`<project-ref>` and `<region>`) that
+makes the URL invalid. The registry detects this, logs a warning, and falls back to PGlite.
 
-To connect to Supabase Postgres:
-1. Go to Supabase Dashboard → Project Settings → Database → Connection string.
-2. Choose **Session mode** (port 5432).
-3. Copy the `postgresql://postgres.[ref]:[password]@...` string.
-4. Set it as the `DATABASE_URL` secret in Cursor Dashboard → Cloud Agents → Secrets.
-5. For the router worker: `wrangler secret put DATABASE_URL` (in `apps/router/`).
+**Fix in two steps:**
 
-Apply the new Stripe Connect migration while you're there:
-```sql
--- packages/db/src/migrations/0001_stripe_connect.sql
-ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_connect_account_id text;
-```
+1. **Get the correct connection string:**
+   Supabase Dashboard → Project Settings → Database → Connection string.
+   - For the **registry** (Next.js/Vercel): pick **Session mode** (port 5432)
+   - For the **router worker** (Cloudflare Workers): pick **Transaction mode** (port 6543)
+   
+   Format: `postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres`
+
+2. **Update secrets:**
+   - Cursor Dashboard → Cloud Agents → Secrets → `DATABASE_URL` (Session mode URL)
+   - Router worker: `cd apps/router && echo "..." | npx wrangler secret put DATABASE_URL` (Transaction mode URL)
+
+3. **Apply migration** (Supabase SQL Editor, or run once you have the correct DATABASE_URL):
+   ```sql
+   ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_connect_account_id text;
+   ```
+   Or via the migration script:
+   ```bash
+   DATABASE_URL="postgresql://..." pnpm migrate
+   ```
+   The `stripe_connect_account_id` column is currently missing from the live Supabase instance.
+
+4. **Verify:** `curl https://<registry-domain>/api/health` → `{"ok":true,"db":"postgres",...}`
 
 ---
 
@@ -131,42 +146,34 @@ then deploy each piece. See `.env.example` for the full list.
 | `DATABASE_URL` | registry + router | Supabase Postgres (shared state) |
 | `VERCEL_TOKEN` | registry | Vercel deploy |
 | `UPSTASH_REDIS_REST_URL` / `_TOKEN` | router worker | cross-instance pub/sub backplane |
-| `CLERK_SECRET_KEY` / `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | registry | human auth |
+| `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | registry | Supabase Auth (✅ already set) |
 | `STRIPE_SECRET_KEY` / `STRIPE_CONNECT_CLIENT_ID` | billing | wallet top-ups + creator payouts |
+| `STRIPE_WEBHOOK_SECRET` | billing | Stripe webhook signature verification |
 
 **Registry (Phase 1/3) → Vercel**
-1. Set `DATABASE_URL` (Supabase) and Clerk/Stripe keys as Vercel env vars.
-2. Apply the schema once: run `packages/db/src/migrations/0000_init.sql` against Supabase (or `drizzle-kit`).
-3. Deploy `apps/registry` (root dir = repo, project = `apps/registry`).
-4. Wire `apps/registry/src/lib/auth.ts` to Clerk's `auth()` (a clearly marked seam; the rest of the app already uses the tenant abstraction).
+1. Set `DATABASE_URL` (Session mode, port 5432), Supabase keys, and Stripe keys as Vercel env vars.
+2. Apply the schema: run `pnpm migrate` with correct `DATABASE_URL`, or paste `0000_init.sql` + `0001_stripe_connect.sql` into Supabase SQL Editor.
+3. Deploy `apps/registry` (root dir = repo, project dir = `apps/registry`):
+   ```bash
+   vercel --cwd apps/registry --prod
+   ```
 
 **Routing layer (Phase 2) → Cloudflare Workers**
-1. Use `apps/router/src/worker.ts` + `apps/router/wrangler.toml`.
-2. Provide Postgres access (Supabase via Hyperdrive binding or `DATABASE_URL`), set Upstash secrets via `wrangler secret put`.
-3. The Worker uses Durable Objects for session state and the Upstash backplane for fan-out. Billing hooks are wired identically to the Node server (`apps/router/src/wiring.ts`).
+1. Worker is deployed at https://appbazaar-router.c-bcf.workers.dev.
+2. Set DATABASE_URL (Transaction mode, port 6543): `cd apps/router && echo "..." | npx wrangler secret put DATABASE_URL`
+3. Optionally set Upstash secrets: `npx wrangler secret put UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
+4. Redeploy: `cd apps/router && npx wrangler deploy`
 
-**Stripe**: top-ups are direct credit grants in MVP — replace `POST /api/wallet`
-with a Stripe Checkout webhook; payouts are created via `requestPayout` and
-should be settled with a Stripe Connect transfer, then `markPayoutPaid`.
-
-**Stripe (wired — needs keys):**
-- `POST /api/wallet` — when `STRIPE_SECRET_KEY` is set, returns `{ checkoutUrl }` (Stripe Checkout session). When absent, grants credits directly (dev/demo mode).
+**Stripe**:
+- `POST /api/wallet` — when `STRIPE_SECRET_KEY` is set, returns `{ checkoutUrl }` (Stripe Checkout, min 50 000 credits). When absent, grants credits directly (dev/demo mode).
 - `POST /api/stripe/webhook` — handles `checkout.session.completed` → credits wallet; `transfer.created` → marks payout paid. Set `STRIPE_WEBHOOK_SECRET` for signature verification.
 - `GET /api/stripe/connect` — initiates Stripe Connect OAuth for creator onboarding.
 - `GET /api/stripe/connect/callback` — completes OAuth, stores `stripeConnectAccountId` on the tenant.
 - `POST /api/payouts/[id]/settle` — creates a Stripe Connect transfer and calls `markPayoutPaid`.
+- Register webhook in Stripe Dashboard → Webhooks → `https://<registry-domain>/api/stripe/webhook` → events: `checkout.session.completed`, `transfer.created`.
 
-New secrets needed:
-```
-STRIPE_SECRET_KEY          Stripe dashboard → Developers → API keys
-STRIPE_CONNECT_CLIENT_ID   Stripe dashboard → Connect → Settings
-STRIPE_WEBHOOK_SECRET      Stripe dashboard → Webhooks → signing secret
-```
-
-New Supabase migration: `packages/db/src/migrations/0001_stripe_connect.sql`
-```sql
-ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_connect_account_id text;
-```
+**Supabase Auth**: enabled via `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+(both already set). Make sure Email provider is enabled in Supabase Dashboard → Authentication → Providers.
 
 ---
 
@@ -188,12 +195,12 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_connect_account_id text;
 
 ## 7. Known limitations / wave 2
 
-- **Tunnel transport** is not implemented — wire `TunnelTransport` to a real
-  tunnel registry (`packages/router-core/src/transports/tunnel.ts`).
-- **PGlite + production Next build:** PGlite is dev-only; production must use
-  `DATABASE_URL`. The PGlite client is injected from app code so Next can
-  externalize its wasm loader (see `apps/registry/src/lib/db.ts`).
-- **Human auth** uses a dev-tenant cookie until Clerk keys are set.
+- **DATABASE_URL** has placeholder values; registry falls back to PGlite. Fix: see section 1b.
+- **Supabase migration 0001** not yet applied to live DB: `stripe_connect_account_id` column missing. Fix: see section 1b.
+- **Router worker** has no DATABASE_URL secret set; non-health routes return 503. Fix: see section 5.
+- **Tunnel transport** is not implemented — wire `TunnelTransport` to a real tunnel registry.
+- **PGlite + production Next build:** PGlite is dev-only; production must use `DATABASE_URL`.
+- **Human auth** uses a dev-tenant cookie until Supabase keys are set (they are ✅).
 - **Payouts** are manual (Stripe Connect transfer + `markPayoutPaid`).
 - **Demo worker** state is ephemeral/in-memory.
 
@@ -202,10 +209,11 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_connect_account_id text;
 ## 8. Common commands
 
 ```bash
-pnpm test            # vitest suite
-pnpm typecheck       # typecheck every package
+pnpm test            # vitest suite (18 passing)
+pnpm typecheck       # typecheck every package (clean)
 pnpm build           # typecheck + build registry
 pnpm demo            # end-to-end demo
+pnpm migrate         # apply DB migrations (requires correct DATABASE_URL)
 pnpm --filter @appbazaar/db run seed   # seed sample data + print an API key
 ```
 
@@ -217,4 +225,5 @@ pnpm --filter @appbazaar/db run seed   # seed sample data + print an API key
 2. `packages/core/src/manifest.ts` — the protocol-agnostic listing schema.
 3. `packages/db/src/repo/billing.ts` — wallet debit + revenue split + ledger in one transaction.
 4. `apps/router/src/server.ts` + `wiring.ts` — how the engine is exposed over HTTP/SSE.
-5. `README.md` — architecture overview and deployment table.
+5. `apps/registry/src/lib/stripe.ts` — all Stripe logic in one place.
+6. `README.md` — architecture overview and deployment table.
