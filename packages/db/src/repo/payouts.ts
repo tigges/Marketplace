@@ -55,3 +55,8 @@ export async function listPayouts(db: Database, tenantId: string) {
     .where(eq(payouts.tenantId, tenantId))
     .orderBy(desc(payouts.createdAt));
 }
+
+export async function getPayoutById(db: Database, payoutId: string) {
+  const rows = await db.select().from(payouts).where(eq(payouts.id, payoutId)).limit(1);
+  return rows[0] ?? null;
+}

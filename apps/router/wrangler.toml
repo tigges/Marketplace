@@ -3,23 +3,30 @@ main = "src/worker.ts"
 compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Deployed URL: https://appbazaar-router.c-bcf.workers.dev
+
 # Durable Object holding per-session state (SSE stream + fan-out + metadata).
+# Free plan requires new_sqlite_classes (not new_classes).
 [[durable_objects.bindings]]
 name = "SESSION_DO"
 class_name = "AppbazaarSessionDO"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["AppbazaarSessionDO"]
+new_sqlite_classes = ["AppbazaarSessionDO"]
 
 # Hyperdrive pools connections to managed Postgres (Supabase) from the edge.
+# Recommended for production — eliminates cold-start latency vs raw DATABASE_URL.
 # [[hyperdrive]]
 # binding = "HYPERDRIVE"
 # id = "<your-hyperdrive-id>"
 
-# Secrets (set via `wrangler secret put`):
-#   DATABASE_URL              - Supabase Postgres connection string (if not using Hyperdrive)
-#   UPSTASH_REDIS_REST_URL    - Upstash Redis REST URL (cross-region backplane / metrics)
+# Secrets (set via `wrangler secret put <NAME>`):
+#   DATABASE_URL              - Supabase Postgres connection string
+#                               Supabase Dashboard → Project Settings → Database
+#                               → Connection string → Session mode (port 5432)
+#                               Format: postgresql://postgres.[ref]:[password]@...
+#   UPSTASH_REDIS_REST_URL    - Upstash Redis REST URL (cross-region backplane)
 #   UPSTASH_REDIS_REST_TOKEN  - Upstash Redis REST token
 [vars]
 PLATFORM_FEE_BPS = "1000"

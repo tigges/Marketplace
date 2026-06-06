@@ -106,4 +106,7 @@ CREATE TABLE IF NOT EXISTS payouts (
   stripe_transfer_id text,
   created_at         timestamptz NOT NULL DEFAULT now()
 );
+
+-- Idempotent additions for Stripe Connect support
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_connect_account_id text;
 `;

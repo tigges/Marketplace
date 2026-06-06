@@ -21,6 +21,8 @@ export const tenants = pgTable(
     slug: text("slug").notNull(),
     name: text("name").notNull(),
     clerkRef: text("clerk_ref"),
+    /** Stripe Connect account ID — set when the creator completes OAuth onboarding. */
+    stripeConnectAccountId: text("stripe_connect_account_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({ slugUq: uniqueIndex("tenants_slug_uq").on(t.slug) }),
