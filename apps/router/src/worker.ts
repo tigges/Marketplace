@@ -53,9 +53,26 @@ export interface Env {
 
 async function resolveDb(env: Env) {
   const url = env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL;
-  if (!url) throw new Error("router worker requires HYPERDRIVE or DATABASE_URL");
+  if (!url) {
+    return Response.json(
+      { error: { code: "not_configured", message: "router worker requires HYPERDRIVE or DATABASE_URL" } },
+      { status: 503 },
+    );
+  }
   const { createPostgresHandle } = await import("@appbazaar/db");
-  return createPostgresHandle(url);
+  try {
+    return await createPostgresHandle(url);
+  } catch (err) {
+    return Response.json(
+      {
+        error: {
+          code: "db_unavailable",
+          message: err instanceof Error ? err.message : "database connection failed",
+        },
+      },
+      { status: 503 },
+    );
+  }
 }
 
 function makeResolveManifest(db: import("@appbazaar/db").Database) {
@@ -147,9 +164,19 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/health") return Response.json({ ok: true, service: "appbazaar-router-worker" });
+    if (url.pathname === "/health") {
+      const dbConfigured = Boolean(env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL);
+      return Response.json({
+        ok: true,
+        service: "appbazaar-router-worker",
+        db: dbConfigured ? "postgres" : "unconfigured",
+        backplane: env.UPSTASH_REDIS_REST_URL ? "upstash" : "in-memory",
+      });
+    }
 
-    const handle = await resolveDb(env);
+    const dbResult = await resolveDb(env);
+    if (dbResult instanceof Response) return dbResult;
+    const handle = dbResult;
     const engine = new RouterEngine({
       sessions: {
         async create(meta) {
